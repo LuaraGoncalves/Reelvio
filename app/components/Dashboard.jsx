@@ -28,7 +28,7 @@ export default function Dashboard({
   const observer = useRef();
 
   const [filters, setFilters] = useState({
-    type: 'movie',
+    type: 'all',
     genre: 'all',
     year: 'all',
     rating: 'all'
@@ -172,14 +172,13 @@ export default function Dashboard({
         aria-label="Filtros de conteúdo"
       >
         <CustomSelect
-          displayLabel="Filmes e séries"
           ariaLabel="Filtrar por filmes ou séries"
           value={filters.type}
           onChange={(val) =>
             handleFilterChange({ target: { name: 'type', value: val } })
           }
           options={[
-            { value: 'all', label: 'Todos os tipos' },
+            { value: 'all', label: 'Filmes e séries' },
             { value: 'movie', label: 'Filmes' },
             { value: 'tv', label: 'Séries' }
           ]}
