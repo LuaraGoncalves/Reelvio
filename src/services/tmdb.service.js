@@ -45,37 +45,57 @@ export async function fetchFilteredMovies({
 } = {}) {
   if (!getTmdbApiKey()) return serviceMissingConfig('TMDB_API_KEY');
 
-  let path = '';
-  const params = { page };
-  if (type === 'all') {
-    path = '/trending/all/day';
-  } else {
-    path = `/discover/${type}`;
-    params.sort_by = 'popularity.desc';
-    if (genre !== 'all') params.with_genres = genre;
-    if (year !== 'all') {
-      if (type === 'movie') params.primary_release_year = year;
-      else if (type === 'tv') params.first_air_date_year = year;
-    }
-    if (rating !== 'all') params['vote_average.gte'] = rating;
+  if (type === 'all' && genre === 'all' && year === 'all' && rating === 'all') {
+    const data = await requestTmdb('/trending/all/day', { page });
+    if (!data) return serviceFailure('Não foi possível buscar conteúdos');
+    return serviceSuccess(normalizeMediaList(data.results));
   }
 
-  const data = await requestTmdb(path, params);
-  if (!data) return serviceFailure('Não foi possível buscar conteúdos');
-
-  return serviceSuccess(
-    normalizeMediaList(data.results, type === 'all' ? null : type)
+  const types = type === 'all' ? ['movie', 'tv'] : [type];
+  const responses = await Promise.all(
+    types.map((mediaType) => {
+      const params = { page, sort_by: 'popularity.desc' };
+      if (genre !== 'all') params.with_genres = genre;
+      if (year !== 'all') {
+        params[
+          mediaType === 'movie' ? 'primary_release_year' : 'first_air_date_year'
+        ] = year;
+      }
+      if (rating !== 'all') params['vote_average.gte'] = rating;
+      return requestTmdb(`/discover/${mediaType}`, params);
+    })
   );
+  if (responses.some((data) => !data)) {
+    return serviceFailure('Não foi possível buscar conteúdos');
+  }
+
+  const results = responses.flatMap((data, index) =>
+    normalizeMediaList(data.results, types[index])
+  );
+  if (types.length > 1) {
+    results.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+  }
+  return serviceSuccess(results);
 }
 
 export async function fetchGenres(type = 'movie') {
   if (!getTmdbApiKey()) return serviceMissingConfig('TMDB_API_KEY');
 
-  const targetType = type === 'all' ? 'movie' : type;
-  const data = await requestTmdb(`/genre/${targetType}/list`);
-  if (!data) return serviceFailure('Não foi possível buscar gêneros');
+  const types = type === 'all' ? ['movie', 'tv'] : [type];
+  const responses = await Promise.all(
+    types.map((mediaType) => requestTmdb(`/genre/${mediaType}/list`))
+  );
+  if (responses.some((data) => !data)) {
+    return serviceFailure('Não foi possível buscar gêneros');
+  }
 
-  return serviceSuccess(normalizeGenres(data.genres));
+  const genres = responses.flatMap((data) => normalizeGenres(data.genres));
+  const uniqueGenres = [
+    ...new Map(genres.map((genre) => [genre.id, genre])).values()
+  ];
+  return serviceSuccess(
+    uniqueGenres.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+  );
 }
 
 export async function fetchMovieDetailsAndRecs(id, type) {
