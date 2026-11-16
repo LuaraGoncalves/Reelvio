@@ -25,6 +25,7 @@ export default function Dashboard({
   const [hasMore, setHasMore] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
   const hasMountedRef = useRef(false);
+  const loadedFiltersRef = useRef(null);
   const observer = useRef();
 
   const [filters, setFilters] = useState({
@@ -37,63 +38,64 @@ export default function Dashboard({
   const [genres, setGenres] = useState([]);
 
   useEffect(() => {
+    let cancelled = false;
     async function loadGenres() {
-      if (filters.type === 'all') {
-        setGenres([]);
-        return;
-      }
+      setGenres([]);
       try {
         const result = await fetchGenresResult(filters.type);
-        setGenres(result.data);
+        if (!cancelled) setGenres(result.data);
       } catch {
-        setGenres([]);
+        if (!cancelled) setGenres([]);
       }
     }
     loadGenres();
+    return () => {
+      cancelled = true;
+    };
   }, [filters.type]);
 
   useEffect(() => {
     if (!hasMountedRef.current) {
       hasMountedRef.current = true;
-      if (initialMovieCount === 0) {
-        setLoading(true);
-        setPage(1);
-        fetchFilteredMoviesResult({ ...filters, page: 1 })
-          .then((result) => {
-            setMovieError(result.error);
-            setMovieErrorStatus(result.status);
-            setMovies(result.data);
-            setHasMore(result.ok && result.data.length > 0);
-          })
-          .finally(() => setLoading(false));
+      if (initialMovieCount > 0) {
+        loadedFiltersRef.current = filters;
+        return;
       }
-      return;
     }
 
+    let cancelled = false;
     async function loadInitialMovies() {
       try {
         setLoading(true);
-        setPage(1); // reseta pagina
+        setHasMore(false);
+        setPage(1);
         const result = await fetchFilteredMoviesResult({ ...filters, page: 1 });
+        if (cancelled) return;
+        loadedFiltersRef.current = filters;
         setMovieError(result.error);
         setMovieErrorStatus(result.status);
         setMovies(result.data);
         setHasMore(result.ok && result.data.length > 0);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
     loadInitialMovies();
+    return () => {
+      cancelled = true;
+    };
   }, [filters, initialMovieCount, reloadKey]);
 
   useEffect(() => {
-    if (page === 1) return; // a primeira pagina carrega no filtro
+    if (page === 1 || loadedFiltersRef.current !== filters) return;
 
+    let cancelled = false;
     async function loadMoreMovies() {
       try {
         setLoadingMore(true);
         const result = await fetchFilteredMoviesResult({ ...filters, page });
+        if (cancelled) return;
         setMovieError(result.error);
         setMovieErrorStatus(result.status);
 
@@ -103,17 +105,24 @@ export default function Dashboard({
           setMovies((prev) => {
             // Remove duplicates se a API retornar os mesmos itens
             const newMovies = result.data.filter(
-              (d) => !prev.some((p) => p.id === d.id)
+              (d) =>
+                !prev.some(
+                  (p) => p.id === d.id && p.media_type === d.media_type
+                )
             );
             return [...prev, ...newMovies];
           });
         }
       } finally {
-        setLoadingMore(false);
+        if (!cancelled) setLoadingMore(false);
       }
     }
 
     loadMoreMovies();
+    return () => {
+      cancelled = true;
+      setLoadingMore(false);
+    };
   }, [page, filters]);
 
   const lastMovieElementRef = useCallback(
@@ -185,9 +194,8 @@ export default function Dashboard({
         />
 
         <CustomSelect
-          displayLabel="Gêneros"
+          displayLabel={filters.genre === 'all' ? 'Gêneros' : undefined}
           ariaLabel="Filtrar por gênero"
-          disabled={filters.type === 'all'}
           value={filters.genre}
           onChange={(val) =>
             handleFilterChange({ target: { name: 'genre', value: val } })
@@ -199,9 +207,8 @@ export default function Dashboard({
         />
 
         <CustomSelect
-          displayLabel="Ano"
+          displayLabel={filters.year === 'all' ? 'Ano' : undefined}
           ariaLabel="Filtrar por ano"
-          disabled={filters.type === 'all'}
           value={filters.year}
           onChange={(val) =>
             handleFilterChange({ target: { name: 'year', value: val } })
@@ -213,9 +220,8 @@ export default function Dashboard({
         />
 
         <CustomSelect
-          displayLabel="Classificação"
+          displayLabel={filters.rating === 'all' ? 'Classificação' : undefined}
           ariaLabel="Filtrar por classificação"
-          disabled={filters.type === 'all'}
           value={filters.rating}
           onChange={(val) =>
             handleFilterChange({ target: { name: 'rating', value: val } })
